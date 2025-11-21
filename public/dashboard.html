@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bucket List App - Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>My Bucket Lists</h1>
+      <div class="user-info">
+        <span id="usernameDisplay"></span>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </header>
+
+    <div class="dashboard-content">
+      <!-- Create/Join Bucket List Section -->
+      <div class="action-section">
+        <div class="create-list">
+          <h2>Create New Bucket List</h2>
+          <form id="createListForm">
+            <input type="text" id="listName" placeholder="Enter list name" required>
+            <button type="submit">Create</button>
+          </form>
+          <div id="createListError" class="error-message"></div>
+        </div>
+
+        <div class="join-list">
+          <h2>Join Existing Bucket List</h2>
+          <form id="joinListForm">
+            <input type="text" id="joinCode" placeholder="Enter share code" required maxlength="6">
+            <button type="submit">Join</button>
+          </form>
+          <div id="joinListError" class="error-message"></div>
+        </div>
+      </div>
+
+      <!-- Bucket Lists Display -->
+      <div class="lists-section">
+        <h2>Your Bucket Lists</h2>
+        <div id="bucketListsContainer">
+          <p class="empty-message">No bucket lists yet. Create one above!</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bucket List View Modal -->
+  <div id="listModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="listModalTitle"></h2>
+        <span class="close-btn" id="closeModal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="list-info">
+          <p><strong>Share Code:</strong> <span id="shareCodeDisplay"></span></p>
+          <p><strong>Members:</strong> <span id="membersDisplay"></span></p>
+        </div>
+
+        <div class="add-item-section">
+          <h3>Add New Item</h3>
+          <form id="addItemForm">
+            <input type="text" id="itemText" placeholder="Enter item description" required>
+            <button type="submit">Add Item</button>
+          </form>
+          <div id="addItemError" class="error-message"></div>
+        </div>
+
+        <div class="items-section">
+          <h3>Items</h3>
+          <div id="itemsContainer">
+            <p class="empty-message">No items yet. Add one above!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
