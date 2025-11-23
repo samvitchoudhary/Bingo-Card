@@ -68,10 +68,10 @@ const api = {
   },
 
   // Item endpoints
-  async addItem(bucketListId, text) {
+  async addItem(bucketListId, payload) {
     return this.request('/items', {
       method: 'POST',
-      body: JSON.stringify({ bucket_list_id: bucketListId, text }),
+      body: JSON.stringify({ bucket_list_id: bucketListId, ...payload }),
     });
   },
 
@@ -80,25 +80,33 @@ const api = {
       method: 'PATCH',
     });
   },
+
+  async updateCounter(itemId, delta) {
+    return this.request(`/items/${itemId}/counter`, {
+      method: 'POST',
+      body: JSON.stringify({ delta }),
+    });
+  },
 };
 
-// Check if user is on dashboard or login page
+// Check which page user is on
 const isDashboard = window.location.pathname.includes('dashboard.html');
+const isListPage = window.location.pathname.includes('list.html');
 
 // Authentication check
 async function checkAuth() {
   try {
     const data = await api.getMe();
     if (data.user) {
-      if (!isDashboard) {
-        // Redirect to dashboard if logged in
+      if (!isDashboard && !isListPage) {
+        // Redirect to dashboard if logged in (on login page)
         window.location.href = 'dashboard.html';
       }
       return data.user;
     }
   } catch (error) {
-    if (isDashboard) {
-      // Redirect to login if not authenticated
+    if (isDashboard || isListPage) {
+      // Redirect to login if not authenticated (on protected pages)
       window.location.href = 'index.html';
     }
   }
@@ -108,6 +116,8 @@ async function checkAuth() {
 // Initialize based on page
 if (isDashboard) {
   initDashboard();
+} else if (isListPage) {
+  initListPage();
 } else {
   initAuth();
 }
@@ -174,7 +184,6 @@ function initAuth() {
 
 // Dashboard Functions
 let currentUser = null;
-let currentListId = null;
 
 async function initDashboard() {
   // Check authentication
@@ -234,38 +243,6 @@ async function initDashboard() {
     }
   });
 
-  // Modal handlers
-  const modal = document.getElementById('listModal');
-  const closeModal = document.getElementById('closeModal');
-
-  closeModal?.addEventListener('click', () => {
-    modal.classList.add('hidden');
-  });
-
-  window.addEventListener('click', (e) => {
-    if (e.target === modal) {
-      modal.classList.add('hidden');
-    }
-  });
-
-  // Add item form
-  const addItemForm = document.getElementById('addItemForm');
-  addItemForm?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const errorDiv = document.getElementById('addItemError');
-    errorDiv.textContent = '';
-
-    const itemText = document.getElementById('itemText').value;
-
-    try {
-      await api.addItem(currentListId, itemText);
-      document.getElementById('itemText').value = '';
-      loadBucketList(currentListId);
-    } catch (error) {
-      errorDiv.textContent = error.message;
-    }
-  });
-
   // Load bucket lists
   loadBucketLists();
 }
@@ -287,11 +264,11 @@ async function loadBucketLists() {
       </div>
     `).join('');
 
-    // Add click handlers
+    // Add click handlers - navigate to list page instead of opening modal
     container.querySelectorAll('.bucket-list-card').forEach(card => {
       card.addEventListener('click', () => {
         const listId = parseInt(card.dataset.id);
-        openBucketList(listId);
+        window.location.href = `list.html?id=${listId}`;
       });
     });
   } catch (error) {
@@ -299,15 +276,113 @@ async function loadBucketLists() {
   }
 }
 
-async function openBucketList(listId) {
-  currentListId = listId;
-  const modal = document.getElementById('listModal');
+// List Page Functions
+let currentListId = null;
+let allItems = [];
 
+async function initListPage() {
+  // Check authentication
+  const currentUser = await checkAuth();
+  if (!currentUser) return;
+
+  // Set username display
+  const usernameDisplay = document.getElementById('usernameDisplay');
+  if (usernameDisplay) {
+    usernameDisplay.textContent = `Welcome, ${currentUser.username}`;
+  }
+
+  // Get list ID from URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const listId = parseInt(urlParams.get('id'));
+
+  if (!listId || isNaN(listId)) {
+    alert('Invalid list ID');
+    window.location.href = 'dashboard.html';
+    return;
+  }
+
+  currentListId = listId;
+
+  // Logout handler
+  const logoutBtn = document.getElementById('logoutBtn');
+  logoutBtn?.addEventListener('click', async () => {
+    try {
+      await api.logout();
+      window.location.href = 'index.html';
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  });
+
+  // Load bucket list data
+  await loadListPage(listId);
+
+  // Add item form handler
+  const addItemForm = document.getElementById('addItemForm');
+  const itemTypeSelect = document.getElementById('itemType');
+  const parentItemGroup = document.getElementById('parentItemGroup');
+  const counterTargetGroup = document.getElementById('counterTargetGroup');
+
+  // Show/hide fields based on item type
+  itemTypeSelect?.addEventListener('change', (e) => {
+    if (e.target.value === 'counter') {
+      counterTargetGroup.style.display = 'block';
+    } else {
+      counterTargetGroup.style.display = 'none';
+      document.getElementById('counterTarget').value = '';
+    }
+  });
+
+  addItemForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorDiv = document.getElementById('addItemError');
+    errorDiv.textContent = '';
+
+    const text = document.getElementById('itemText').value.trim();
+    const type = document.getElementById('itemType').value;
+    const description = document.getElementById('itemDescription').value.trim();
+    const parentItemId = document.getElementById('parentItemId').value || null;
+    const counterTarget = document.getElementById('counterTarget').value || null;
+
+    if (!text) {
+      errorDiv.textContent = 'Title is required';
+      return;
+    }
+
+    try {
+      const payload = {
+        text,
+        type,
+        description: description || null,
+        parent_item_id: parentItemId ? parseInt(parentItemId) : null,
+        counter_target: counterTarget ? parseInt(counterTarget) : null
+      };
+
+      await api.addItem(currentListId, payload);
+      
+      // Reset form
+      document.getElementById('itemText').value = '';
+      document.getElementById('itemDescription').value = '';
+      document.getElementById('parentItemId').value = '';
+      document.getElementById('counterTarget').value = '';
+      itemTypeSelect.value = 'check';
+      counterTargetGroup.style.display = 'none';
+      parentItemGroup.style.display = 'none';
+
+      // Reload list
+      await loadListPage(currentListId);
+    } catch (error) {
+      errorDiv.textContent = error.message;
+    }
+  });
+}
+
+async function loadListPage(listId) {
   try {
     const data = await api.getBucketList(listId);
 
-    // Set modal title
-    document.getElementById('listModalTitle').textContent = escapeHtml(data.bucketList.name);
+    // Set title
+    document.getElementById('listTitle').textContent = escapeHtml(data.bucketList.name);
 
     // Set share code
     document.getElementById('shareCodeDisplay').textContent = data.bucketList.share_code;
@@ -316,31 +391,44 @@ async function openBucketList(listId) {
     const membersText = data.members.map(m => escapeHtml(m.username)).join(', ');
     document.getElementById('membersDisplay').textContent = membersText || 'None';
 
-    // Load items
-    loadItems(data.items);
+    // Store items for parent selection
+    allItems = data.items;
 
-    // Show modal
-    modal.classList.remove('hidden');
+    // Update parent item dropdown
+    updateParentItemDropdown(data.items);
+
+    // Load items with hierarchical rendering
+    loadItemsHierarchical(data.items);
   } catch (error) {
     console.error('Error loading bucket list:', error);
     alert('Failed to load bucket list: ' + error.message);
+    window.location.href = 'dashboard.html';
   }
 }
 
-async function loadBucketList(listId) {
-  try {
-    const data = await api.getBucketList(listId);
-    loadItems(data.items);
+function updateParentItemDropdown(items) {
+  const parentSelect = document.getElementById('parentItemId');
+  if (!parentSelect) return;
 
-    // Update members
-    const membersText = data.members.map(m => escapeHtml(m.username)).join(', ');
-    document.getElementById('membersDisplay').textContent = membersText || 'None';
-  } catch (error) {
-    console.error('Error reloading bucket list:', error);
+  // Clear existing options except "None"
+  parentSelect.innerHTML = '<option value="">None (top level)</option>';
+
+  // Add top-level items as potential parents
+  items.filter(item => !item.parent_item_id).forEach(item => {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = escapeHtml(item.text || item.title || 'Untitled');
+    parentSelect.appendChild(option);
+  });
+
+  // Show/hide parent item group based on whether there are items
+  const parentItemGroup = document.getElementById('parentItemGroup');
+  if (parentItemGroup && items.length > 0) {
+    parentItemGroup.style.display = 'block';
   }
 }
 
-function loadItems(items) {
+function loadItemsHierarchical(items) {
   const container = document.getElementById('itemsContainer');
 
   if (!items || items.length === 0) {
@@ -348,43 +436,131 @@ function loadItems(items) {
     return;
   }
 
-  container.innerHTML = items.map(item => {
-    const checkedClass = item.is_checked ? 'checked' : '';
-    const checkedByText = item.is_checked && item.checked_by_username
-      ? ` (checked by ${escapeHtml(item.checked_by_username)})`
-      : '';
+  // Build a tree structure
+  const itemMap = new Map();
+  const rootItems = [];
 
-    return `
-      <div class="item ${checkedClass}">
+  // First pass: create map of all items
+  items.forEach(item => {
+    itemMap.set(item.id, { ...item, children: [] });
+  });
+
+  // Second pass: build tree
+  items.forEach(item => {
+    const itemNode = itemMap.get(item.id);
+    if (item.parent_item_id && itemMap.has(item.parent_item_id)) {
+      const parent = itemMap.get(item.parent_item_id);
+      parent.children.push(itemNode);
+    } else {
+      rootItems.push(itemNode);
+    }
+  });
+
+  // Render tree
+  container.innerHTML = '';
+  rootItems.forEach(item => {
+    container.appendChild(renderItemNode(item));
+  });
+}
+
+function renderItemNode(item, depth = 0) {
+  const itemDiv = document.createElement('div');
+  itemDiv.className = `item item-${item.type || 'check'}`;
+  if (depth > 0) {
+    itemDiv.classList.add('sub-item');
+    itemDiv.style.marginLeft = `${depth * 30}px`;
+  }
+
+  const checkedClass = item.is_checked ? 'checked' : '';
+  const checkedByText = item.is_checked && item.checked_by_username
+    ? ` (checked by ${escapeHtml(item.checked_by_username)})`
+    : '';
+
+  if (item.type === 'counter') {
+    // Render counter item
+    const counterValue = item.counter_value || 0;
+    const counterTarget = item.counter_target;
+    const isComplete = counterTarget && counterValue >= counterTarget;
+
+    itemDiv.innerHTML = `
+      <div class="item-header">
+        <span class="item-text ${isComplete ? 'complete' : ''}">${escapeHtml(item.text)}</span>
+        <div class="counter-controls">
+          <button class="counter-btn" data-item-id="${item.id}" data-delta="-1">-</button>
+          <span class="counter-value">${counterValue}${counterTarget ? ` / ${counterTarget}` : ''}</span>
+          <button class="counter-btn" data-item-id="${item.id}" data-delta="1">+</button>
+        </div>
+      </div>
+      ${item.description ? `<div class="item-description">${escapeHtml(item.description)}</div>` : ''}
+      ${isComplete ? '<span class="item-complete-badge">Complete!</span>' : ''}
+    `;
+  } else {
+    // Render checkbox item
+    itemDiv.innerHTML = `
+      <div class="item-header">
         <input 
           type="checkbox" 
           ${item.is_checked ? 'checked' : ''} 
           data-item-id="${item.id}"
+          class="item-checkbox"
         >
-        <span class="item-text">${escapeHtml(item.text)}</span>
+        <span class="item-text ${checkedClass}">${escapeHtml(item.text)}</span>
         ${item.is_checked ? `<span class="item-checked-by">${checkedByText}</span>` : ''}
       </div>
+      ${item.description ? `<div class="item-description">${escapeHtml(item.description)}</div>` : ''}
     `;
-  }).join('');
+  }
 
-  // Add checkbox handlers
-  container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-    checkbox.addEventListener('change', async (e) => {
-      const itemId = parseInt(e.target.dataset.itemId);
-      try {
-        await api.toggleItem(itemId);
-        loadBucketList(currentListId);
-      } catch (error) {
-        console.error('Error toggling item:', error);
-        // Revert checkbox state
-        e.target.checked = !e.target.checked;
-        alert('Failed to toggle item: ' + error.message);
-      }
+  // Add event handlers
+  if (item.type === 'counter') {
+    // Counter buttons
+    itemDiv.querySelectorAll('.counter-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const itemId = parseInt(btn.dataset.itemId);
+        const delta = parseInt(btn.dataset.delta);
+        try {
+          await api.updateCounter(itemId, delta);
+          await loadListPage(currentListId);
+        } catch (error) {
+          console.error('Error updating counter:', error);
+          alert('Failed to update counter: ' + error.message);
+        }
+      });
     });
-  });
+  } else {
+    // Checkbox toggle
+    const checkbox = itemDiv.querySelector('.item-checkbox');
+    if (checkbox) {
+      checkbox.addEventListener('change', async (e) => {
+        const itemId = parseInt(e.target.dataset.itemId);
+        try {
+          await api.toggleItem(itemId);
+          await loadListPage(currentListId);
+        } catch (error) {
+          console.error('Error toggling item:', error);
+          e.target.checked = !e.target.checked;
+          alert('Failed to toggle item: ' + error.message);
+        }
+      });
+    }
+  }
+
+  // Render children recursively
+  if (item.children && item.children.length > 0) {
+    const childrenContainer = document.createElement('div');
+    childrenContainer.className = 'item-children';
+    item.children.forEach(child => {
+      childrenContainer.appendChild(renderItemNode(child, depth + 1));
+    });
+    itemDiv.appendChild(childrenContainer);
+  }
+
+  return itemDiv;
 }
 
 function escapeHtml(text) {
+  if (text === null || text === undefined) return '';
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;

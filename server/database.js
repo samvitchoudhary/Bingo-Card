@@ -48,6 +48,25 @@ db.exec(`
   );
 `);
 
+// Migrate items table to add new columns if they don't exist
+// SQLite requires separate ALTER TABLE statements for each column
+const addColumnIfNotExists = (columnName, columnDef) => {
+  try {
+    db.exec(`ALTER TABLE items ADD COLUMN ${columnName} ${columnDef}`);
+  } catch (error) {
+    // Column may already exist, which is fine
+    if (!error.message.includes('duplicate column name')) {
+      console.error(`Error adding column ${columnName}:`, error.message);
+    }
+  }
+};
+
+addColumnIfNotExists('type', "TEXT DEFAULT 'check'");
+addColumnIfNotExists('description', 'TEXT');
+addColumnIfNotExists('parent_item_id', 'INTEGER');
+addColumnIfNotExists('counter_value', 'INTEGER DEFAULT 0');
+addColumnIfNotExists('counter_target', 'INTEGER');
+
 // Helper functions
 const dbHelpers = {
   // User operations
@@ -98,12 +117,16 @@ const dbHelpers = {
   // Membership operations
   addMember: (bucketListId, userId) => {
     const stmt = db.prepare('INSERT OR IGNORE INTO bucket_list_members (user_id, bucket_list_id) VALUES (?, ?)');
-    return stmt.run(userId, bucketListId);
+    // Ensure integers for proper comparison
+    return stmt.run(parseInt(userId), parseInt(bucketListId));
   },
 
   isMember: (bucketListId, userId) => {
     const stmt = db.prepare('SELECT * FROM bucket_list_members WHERE bucket_list_id = ? AND user_id = ?');
-    return stmt.get(bucketListId, userId) !== undefined;
+    // Ensure integers for proper comparison - SQLite is strict about type matching
+    const result = stmt.get(parseInt(bucketListId), parseInt(userId));
+    // better-sqlite3 returns undefined when no row found, but check both for safety
+    return result !== undefined && result !== null;
   },
 
   getMembers: (bucketListId) => {
@@ -118,9 +141,30 @@ const dbHelpers = {
   },
 
   // Item operations
-  createItem: (bucketListId, text) => {
-    const stmt = db.prepare('INSERT INTO items (bucket_list_id, text) VALUES (?, ?)');
-    return stmt.run(bucketListId, text);
+  createItem: (bucketListId, text, options = {}) => {
+    const {
+      type = 'check',
+      description = null,
+      parentItemId = null,
+      counterValue = 0,
+      counterTarget = null
+    } = options;
+
+    const stmt = db.prepare(`
+      INSERT INTO items (
+        bucket_list_id, text, type, description, parent_item_id,
+        counter_value, counter_target
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    return stmt.run(
+      parseInt(bucketListId),
+      text,
+      type,
+      description || null,
+      parentItemId ? parseInt(parentItemId) : null,
+      parseInt(counterValue) || 0,
+      counterTarget ? parseInt(counterTarget) : null
+    );
   },
 
   getItems: (bucketListId) => {
@@ -129,9 +173,12 @@ const dbHelpers = {
       FROM items i
       LEFT JOIN users u ON i.checked_by = u.id
       WHERE i.bucket_list_id = ?
-      ORDER BY i.created_at ASC
+      ORDER BY 
+        CASE WHEN i.parent_item_id IS NULL THEN 0 ELSE 1 END,
+        i.parent_item_id,
+        i.created_at ASC
     `);
-    return stmt.all(bucketListId);
+    return stmt.all(parseInt(bucketListId));
   },
 
   toggleItem: (itemId, userId, isChecked) => {
@@ -151,7 +198,21 @@ const dbHelpers = {
       LEFT JOIN users u ON i.checked_by = u.id
       WHERE i.id = ?
     `);
-    return stmt.get(itemId);
+    return stmt.get(parseInt(itemId));
+  },
+
+  updateCounter: (itemId, delta) => {
+    const item = dbHelpers.getItem(itemId);
+    if (!item || item.type !== 'counter') {
+      throw new Error('Item not found or not a counter type');
+    }
+
+    const newValue = Math.max(0, (parseInt(item.counter_value) || 0) + parseInt(delta));
+    const target = item.counter_target ? parseInt(item.counter_target) : null;
+    const clampedValue = target ? Math.min(newValue, target) : newValue;
+
+    const stmt = db.prepare('UPDATE items SET counter_value = ? WHERE id = ?');
+    return stmt.run(clampedValue, parseInt(itemId));
   }
 };
 

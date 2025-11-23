@@ -17,7 +17,8 @@ const {
   createItem,
   getItems,
   toggleItem,
-  getItem
+  getItem,
+  updateCounter
 } = require('./database');
 
 const app = express();
@@ -212,13 +213,21 @@ app.post('/api/bucket-lists/join', requireAuth, (req, res) => {
       return res.status(404).json({ error: 'Bucket list not found' });
     }
 
+    // Ensure userId is valid
+    const userId = parseInt(req.session.userId);
+    const bucketListId = parseInt(bucketList.id);
+
+    if (isNaN(userId) || isNaN(bucketListId)) {
+      return res.status(500).json({ error: 'Invalid user or bucket list ID' });
+    }
+
     // Check if already a member
-    if (isMember(bucketList.id, req.session.userId)) {
+    if (isMember(bucketListId, userId)) {
       return res.status(400).json({ error: 'Already a member of this bucket list' });
     }
 
     // Add member
-    addMember(bucketList.id, req.session.userId);
+    addMember(bucketListId, userId);
 
     res.json({ success: true, bucketList });
   } catch (error) {
@@ -271,25 +280,56 @@ app.get('/api/bucket-lists/:id', requireAuth, (req, res) => {
 // Add item to bucket list
 app.post('/api/items', requireAuth, (req, res) => {
   try {
-    const { bucket_list_id, text } = req.body;
+    const { 
+      bucket_list_id, 
+      text, 
+      type = 'check',
+      description = null,
+      parent_item_id = null,
+      counter_target = null
+    } = req.body;
 
     if (!bucket_list_id || !text || text.trim().length === 0) {
       return res.status(400).json({ error: 'Bucket list ID and item text are required' });
     }
 
+    // Validate type
+    if (type !== 'check' && type !== 'counter') {
+      return res.status(400).json({ error: 'Item type must be "check" or "counter"' });
+    }
+
     // Verify bucket list exists
-    const bucketList = getBucketListById(bucket_list_id);
+    const bucketList = getBucketListById(parseInt(bucket_list_id));
     if (!bucketList) {
       return res.status(404).json({ error: 'Bucket list not found' });
     }
 
     // Check if user is a member
-    if (!isMember(bucket_list_id, req.session.userId)) {
+    if (!isMember(parseInt(bucket_list_id), req.session.userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Create item
-    const result = createItem(bucket_list_id, text.trim());
+    // Validate parent_item_id if provided
+    if (parent_item_id !== null && parent_item_id !== undefined) {
+      const parentItem = getItem(parseInt(parent_item_id));
+      if (!parentItem) {
+        return res.status(404).json({ error: 'Parent item not found' });
+      }
+      if (parentItem.bucket_list_id !== parseInt(bucket_list_id)) {
+        return res.status(400).json({ error: 'Parent item must belong to the same bucket list' });
+      }
+    }
+
+    // Create item with new fields
+    const options = {
+      type,
+      description: description && description.trim() ? description.trim() : null,
+      parentItemId: parent_item_id ? parseInt(parent_item_id) : null,
+      counterValue: 0,
+      counterTarget: counter_target ? parseInt(counter_target) : null
+    };
+
+    const result = createItem(parseInt(bucket_list_id), text.trim(), options);
     const item = getItem(result.lastInsertRowid);
 
     res.json({ success: true, item });
@@ -307,6 +347,11 @@ app.patch('/api/items/:id/toggle', requireAuth, (req, res) => {
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
+    }
+
+    // Only allow toggling for 'check' type items
+    if (item.type !== 'check') {
+      return res.status(400).json({ error: 'Only checkbox items can be toggled' });
     }
 
     // Check if user is a member of the bucket list
@@ -328,8 +373,61 @@ app.patch('/api/items/:id/toggle', requireAuth, (req, res) => {
   }
 });
 
+// Update counter item
+app.post('/api/items/:id/counter', requireAuth, (req, res) => {
+  try {
+    const itemId = parseInt(req.params.id);
+    const { delta } = req.body;
+
+    if (delta === undefined || delta === null) {
+      return res.status(400).json({ error: 'Delta value is required' });
+    }
+
+    const item = getItem(itemId);
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    // Only allow updating counters
+    if (item.type !== 'counter') {
+      return res.status(400).json({ error: 'Only counter items can be updated' });
+    }
+
+    // Check if user is a member of the bucket list
+    if (!isMember(item.bucket_list_id, req.session.userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Update counter
+    updateCounter(itemId, parseInt(delta));
+
+    // Get updated item
+    const updatedItem = getItem(itemId);
+
+    res.json({ success: true, item: updatedItem });
+  } catch (error) {
+    console.error('Update counter error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update counter' });
+  }
+});
+
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// Handle server errors gracefully
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`\n❌ Error: Port ${PORT} is already in use.\n`);
+    console.log('Please either:');
+    console.log(`  1. Stop the process using port ${PORT}:`);
+    console.log(`     lsof -ti:${PORT} | xargs kill -9`);
+    console.log(`  2. Or change the PORT in server.js to use a different port\n`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', error);
+    process.exit(1);
+  }
 });
 

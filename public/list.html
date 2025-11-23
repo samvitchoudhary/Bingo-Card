@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bucket List - View</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-left">
+        <a href="dashboard.html" class="back-link">← Back to Dashboard</a>
+        <h1 id="listTitle">Loading...</h1>
+      </div>
+      <div class="user-info">
+        <span id="usernameDisplay"></span>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </header>
+
+    <div class="list-content">
+      <div class="list-info">
+        <p><strong>Share Code:</strong> <span id="shareCodeDisplay">-</span></p>
+        <p><strong>Members:</strong> <span id="membersDisplay">-</span></p>
+      </div>
+
+      <div class="add-item-section">
+        <h2>Add New Item</h2>
+        <form id="addItemForm">
+          <div class="form-group">
+            <label for="itemType">Item Type:</label>
+            <select id="itemType" required>
+              <option value="check">Checkbox</option>
+              <option value="counter">Counter</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="itemText">Title:</label>
+            <input type="text" id="itemText" placeholder="Enter item title" required>
+          </div>
+
+          <div class="form-group">
+            <label for="itemDescription">Description (optional):</label>
+            <textarea id="itemDescription" placeholder="Enter item description" rows="2"></textarea>
+          </div>
+
+          <div class="form-group" id="parentItemGroup" style="display: none;">
+            <label for="parentItemId">Parent Item (for sub-bullets):</label>
+            <select id="parentItemId">
+              <option value="">None (top level)</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="counterTargetGroup" style="display: none;">
+            <label for="counterTarget">Target (optional):</label>
+            <input type="number" id="counterTarget" min="0" placeholder="Leave empty for no target">
+          </div>
+
+          <button type="submit">Add Item</button>
+        </form>
+        <div id="addItemError" class="error-message"></div>
+      </div>
+
+      <div class="items-section">
+        <h2>Items</h2>
+        <div id="itemsContainer">
+          <p class="empty-message">Loading...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
